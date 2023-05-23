@@ -141,7 +141,11 @@ def parse(tokens):
         if token == ")":
             left_count += 1
     if (right_count != left_count):
-        raise CarlaeSyntaxError(CarlaeError)
+        raise CarlaeSyntaxError("Error: number of parentheses do not match")
+    elif right_count == 0:
+        if ":=" in tokens:
+            raise CarlaeSyntaxError("Error: missing parentheses for S-expression")
+
 
 
     def parse_expression(index):
@@ -156,25 +160,29 @@ def parse(tokens):
         # next_index always holds the index of the token to-be-parsed next
         next_index = index + 1
         rep = number_or_symbol(token)
-        #print(f'call parse_expression({index}), got {type(rep)}, {rep}')
+        print()
+        print(f'call parse_expression({index}), got {type(rep)}, {rep}')
 
         # raises CarlaeSyntaxError if parentheses are mismatched or missing
-        if rep == ")" or rep == ":=":
-             raise CarlaeSyntaxError(CarlaeError)
+        if rep == ")":
+             raise CarlaeSyntaxError(f'Error: mismatched or missing parentheses. Rep is {rep}')
 
         # base case returns a tuple of: numbers or symbols and the index of the next token
         if rep != "(" and rep != ")":
+            print(f'rep is not ( or ), returned {rep}, {next_index}')
             return (rep, next_index)
-        
 
         subexpression = []
-        
+
         while tokens[next_index] != ")":
             element, next_index = parse_expression(next_index)
             subexpression.append(element)
         return (subexpression, next_index + 1)
 
-    parsed_expression = parse_expression(0)[0]
+
+
+    parsed_expression, next_index = parse_expression(0)
+    print(f'parsed_expression: {parsed_expression}, next_index: {next_index}')
     return parsed_expression
 
 
@@ -183,19 +191,57 @@ def parse(tokens):
 # Built-in Functions #
 ######################
 
+class environment:
+    """
+    Environment class, which allows assignment and lookup environment parentage
+    """
+    def mul(args):
+        prod = 1
+        for arg in args:
+            prod *= arg
+        return prod
 
-carlae_builtins = {
-    "+": sum,
-    "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
-}
+    def div(args):
+        if not args:
+            raise CarlaeEvaluationError("Evaluation error: Division expected at least one argument")
+        elif len(args) == 1:
+            return 1 / args[0]
+        else:
+            return args[0] / environment.mul(args[1:])
+    carlae_builtins = {
+        "+": sum,
+        "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
+        "*": mul,
+        "/": div,
+    }    
+
+    def __init__(self, local, parent):
+        self.local = {}
+        self.parent = parent
+
+
+    def set_variable(self, name, expression):
+        self.local[name] = expression
+        return self.local[name]
+        
+    def get_variable(self, name, environ):
+        if name in environ.local:
+            return environ.local[name]
+        else:
+            environ = environ.parent
+            try:
+                return self.get_variable(name, environ)
+            except:
+                raise CarlaeNameError(f'variable {name} does not has no value')
 
 
 ##############
 # Evaluation #
 ##############
+builtins = environment(environment.carlae_builtins, None)
+env_globals = environment("empty", builtins)
 
-
-def evaluate(tree):
+def evaluate(tree, local = env_globals):
     """
     Evaluate the given syntax tree according to the rules of the Carlae
     language.
@@ -204,26 +250,62 @@ def evaluate(tree):
         tree (type varies): a fully parsed expression, as the output from the
                             parse function
     """
+    
     # base cases: returns associated symbol in carlae_builtins or a number
-    if tree == "+" or tree == "-":
-        print('entered single operand loop')
-        return carlae_builtins[tree]
+    
+    if type(tree) == list:
+         
+        op = tree[0]
+        if op == ":=":
+            name = tree[1]
+            expression = evaluate(tree[2], local)            
+            return local.set_variable(name, expression)
+
+        elif op not in environment.carlae_builtins:
+            raise CarlaeEvaluationError(f'Error: {op} is not a valid function')
+
+        else:
+            args = []
+            for element in tree[1:]:
+                exp = evaluate(element, local)
+                args.append(exp)
+            return environment.carlae_builtins[op](args)
+
+    elif tree in environment.carlae_builtins:
+        return environment.carlae_builtins[tree]
+    
     elif type(tree) == int or type(tree) == float:
         return tree
-   
-    # recursively evaluates S-expressions by calling the first element with the remaining
-    # elements passed in as arguments
 
-    if type(tree) == list:
-        op = tree[0]
-        if op not in carlae_builtins:
-            raise CarlaeEvaluationError(f'Error: {op} is not a valid function')
-        args = []
-        for element in tree[1:]:
-            exp = evaluate(element)
-            args.append(exp)
-        return carlae_builtins[op](args)
+    elif tree.isidentifier():
+        variable_value = local.get_variable(tree, local)
+        return variable_value
 
-    # Raises error for undefined expression
-    if tree not in carlae_builtins:
+    else: 
         raise CarlaeNameError(f'Error: {tree} is not a symbol in carlae_builtins')
+
+def result_and_env(tree, local = env_globals):
+    """
+    Takes the same argument as evaluate.
+    Returns the result of the evaluation and the environment in which the expression was evaluated as a tuple.
+    """
+    if local == env_globals:
+        local = environment("local", env_globals)
+
+    result = evaluate(tree, local)
+    
+    return(result, local)
+    
+
+
+def REPL():
+    # initialize global environment here
+    source = input("in> ")
+    if source == "EXIT":
+        return
+    else:
+        tokens = tokenize(source)
+        tree = parse(tokens)
+        result = evaluate(tree)
+        print("out>", result)
+        return REPL()
