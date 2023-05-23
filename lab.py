@@ -153,8 +153,6 @@ def parse(tokens):
         """
         token = tokens[index]
 
-
-
         # next_index always holds the index of the token to-be-parsed next
         next_index = index + 1
         rep = number_or_symbol(token)
@@ -170,17 +168,13 @@ def parse(tokens):
         
 
         subexpression = []
-
+        
         while tokens[next_index] != ")":
-           # print(f"calling parse_expression({next_index})")
             element, next_index = parse_expression(next_index)
-           # print(f"parse_expression({index}) returned {element}, {next_index}")
             subexpression.append(element)
-           # print('subexpression:', subexpression)
         return (subexpression, next_index + 1)
 
-
-    parsed_expression, next_index = parse_expression(0)
+    parsed_expression = parse_expression(0)[0]
     return parsed_expression
 
 
@@ -210,4 +204,26 @@ def evaluate(tree):
         tree (type varies): a fully parsed expression, as the output from the
                             parse function
     """
-    raise NotImplementedError
+    # base cases: returns associated symbol in carlae_builtins or a number
+    if tree == "+" or tree == "-":
+        print('entered single operand loop')
+        return carlae_builtins[tree]
+    elif type(tree) == int or type(tree) == float:
+        return tree
+   
+    # recursively evaluates S-expressions by calling the first element with the remaining
+    # elements passed in as arguments
+
+    if type(tree) == list:
+        op = tree[0]
+        if op not in carlae_builtins:
+            raise CarlaeEvaluationError(f'Error: {op} is not a valid function')
+        args = []
+        for element in tree[1:]:
+            exp = evaluate(element)
+            args.append(exp)
+        return carlae_builtins[op](args)
+
+    # Raises error for undefined expression
+    if tree not in carlae_builtins:
+        raise CarlaeNameError(f'Error: {tree} is not a symbol in carlae_builtins')
