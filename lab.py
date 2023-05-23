@@ -83,7 +83,44 @@ def tokenize(source):
         source (str): a string containing the source code of a Carlae
                       expression
     """
-    raise NotImplementedError
+    # indentation does not mater
+    # comments are signaled by an "#", should not be included in result
+    token_list = []
+    token = ""
+    comment_string = ""
+    comment_mode = False
+
+    for char in source:
+        if char == "#":
+            comment_mode = True
+
+        if char == '\n':
+            comment_mode = False
+
+        if comment_mode:
+            continue
+
+        if char == "(":
+            token_list.append(char)
+        elif char == ")":
+            if token:
+                token_list.append(token)
+            token_list.append(char)
+            token = ""
+
+        elif char == " " or char == "\n":
+            if token:
+                token_list.append(token)
+            token = ""
+
+        else: 
+            token += char
+
+    if token:
+        token_list.append(token)
+
+    return token_list
+
 
 def parse(tokens):
     """
@@ -95,7 +132,58 @@ def parse(tokens):
     Arguments:
         tokens (list): a list of strings representing tokens
     """
-    raise NotImplementedError
+    right_count = 0
+    left_count = 0
+
+    for token in tokens:
+        if token == "(":
+            right_count += 1
+        if token == ")":
+            left_count += 1
+    if (right_count != left_count):
+        raise CarlaeSyntaxError(CarlaeError)
+
+
+    def parse_expression(index):
+        """
+        Returns a tuple. The first element is the parsed expression:
+        - numbers (int or floats) or symbols as base cases.
+        - recursively returns S-expressions as lists of numbers or symbols.
+        The second element is the index of the token following the parsed expression.
+        """
+        token = tokens[index]
+
+
+
+        # next_index always holds the index of the token to-be-parsed next
+        next_index = index + 1
+        rep = number_or_symbol(token)
+        #print(f'call parse_expression({index}), got {type(rep)}, {rep}')
+
+        # raises CarlaeSyntaxError if parentheses are mismatched or missing
+        if rep == ")" or rep == ":=":
+             raise CarlaeSyntaxError(CarlaeError)
+
+        # base case returns a tuple of: numbers or symbols and the index of the next token
+        if rep != "(" and rep != ")":
+            return (rep, next_index)
+        
+
+        subexpression = []
+
+        while tokens[next_index] != ")":
+           # print(f"calling parse_expression({next_index})")
+            element, next_index = parse_expression(next_index)
+           # print(f"parse_expression({index}) returned {element}, {next_index}")
+            subexpression.append(element)
+           # print('subexpression:', subexpression)
+        return (subexpression, next_index + 1)
+
+
+    parsed_expression, next_index = parse_expression(0)
+    return parsed_expression
+
+
 
 ######################
 # Built-in Functions #
@@ -123,4 +211,3 @@ def evaluate(tree):
                             parse function
     """
     raise NotImplementedError
-
