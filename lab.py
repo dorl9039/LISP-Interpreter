@@ -1,5 +1,7 @@
-#!/usr/bin/env python3
-"""6.009 Lab 8: Carlae (LISP) Interpreter"""
+"""6.009 Lab 9: Carlae Interpreter Part 2"""
+
+import sys
+sys.setrecursionlimit(10_000)
 
 import doctest
 
@@ -80,6 +82,7 @@ def is_valid_variable_name(x):
     if not isinstance(x, str): return False
     if not isinstance(number_or_symbol(x), str): return False
     if any([c in x for c in _FORBIDDEN_CHARS]): return False
+    
     return True
 
 
@@ -159,6 +162,7 @@ def parse(tokens):
     parsed_expression, idx = parse_expression(0)
     if idx != len(tokens):
         raise CarlaeSyntaxError(f'Error: malformed sexpression or mismatched parentheses.')
+    
     return parsed_expression
 
 
@@ -166,21 +170,6 @@ def parse(tokens):
 ######################
 # Built-in Functions #
 ######################
-
-def _mul(args):
-    prod = 1
-    for arg in args:
-        prod *= arg
-    return prod
-
-def _div(args):
-    if not args:
-        raise CarlaeEvaluationError("Evaluation error: Division expected at least one argument")
-    elif len(args) == 1:
-        return 1 / args[0]
-    else:
-        return args[0] / _mul(args[1:])
-
 
 class Environment:
     """
@@ -204,6 +193,7 @@ class Environment:
         self.local[name] = expression
         return self.local[name]
         
+
     def get_variable(self, name):
         """
         Looks in the local environment for the variable name, returns the value.
@@ -224,12 +214,309 @@ class Environment:
                 raise CarlaeNameError(f"name '{name}' is not defined.")
 
 
+    def set_bang(self, name, expression):
+        if name in self.local:
+            self.local[name] = expression
+            return self.local[name]
+        else:
+            try:
+                return self.parent.set_bang(name, expression)
+            except:
+                raise CarlaeNameError(f'variable is not defined in any environments in the chain')
+
+
+def _mul(args):
+    prod = 1
+    for arg in args:
+        prod *= arg
+    return prod
+
+
+def _div(args):
+    if not args:
+        raise CarlaeEvaluationError("Evaluation error: Division expected at least one argument")
+    elif len(args) == 1:
+        return 1 / args[0]
+    else:
+        return args[0] / _mul(args[1:])
+
+
+COMPARE_SYMBOLS = {
+    '=?': lambda x, y: x == y,
+    '>': lambda x, y: x > y,
+    '>=': lambda x, y: x >= y,
+    '<': lambda x, y: x < y,
+    '<=': lambda x, y: x <= y,
+    }
+
+def _compare(symbol, args):
+    for arg1, arg2 in zip(args, args[1:]):
+        if not COMPARE_SYMBOLS[symbol](arg1, arg2):
+            return False
+    return True
+
+
+def _not(args):
+    if len(args) != 1:
+        raise CarlaeEvaluationError("Error: more than one argument passed in")
+    
+    for arg in args:
+        if arg == True:
+            return False
+        elif arg == False:
+            return True
+
+
+def _pair(args):
+    if len(args) != 2:
+        raise CarlaeEvaluationError("Error: pair only takes 2 arguments")
+    
+    new_pair = Pair(args[0], args[1])
+    return new_pair
+
+
+def _get_head(args):
+    if len(args) != 1:
+        raise CarlaeEvaluationError("Error: wrong number of arguments provided")
+    
+    pair = args[0]
+    if not isinstance(pair, Pair):
+        raise CarlaeEvaluationError('Error: not a Pair object')
+    return pair.head
+
+
+def _get_tail(args):
+    if len(args) != 1:
+        raise CarlaeEvaluationError("Error: wrong number of arguments provided")
+    
+    pair = args[0]
+    if not isinstance(pair, Pair):
+        raise CarlaeEvaluationError("Error: not a Pair object")
+    return pair.tail
+
+
+def _list(args):
+    if len(args) == 0:
+        return Nil()
+    else:
+        return Pair(args[0], _list(args[1:]))
+
+
+def _is_list(args):
+    if len(args) != 1:
+        raise CarlaeEvaluationError("Error: list? takes only one argument")
+    obj = args[0]
+
+    def __is_list(o):
+        if isinstance(o, Nil):
+            return True
+        elif isinstance(o, Pair):
+            return __is_list(o.tail)
+        return False
+
+    return __is_list(obj)
+
+
+def _list_length(args):
+    if not _is_list(args):
+        raise CarlaeEvaluationError("Error: object is not a linked list")
+    obj = args[0]    
+    
+    if isinstance(obj, Nil):
+        return 0
+    length = 1 + _list_length([obj.tail])
+
+    return length
+
+
+def _index_list(args):
+    """
+    Takes a list and a nonnegative index as arguments. Returns the element at the given index
+    in the given list
+    """
+    lst = args[0]
+    target_idx = args[1]
+    count = 0
+    try:
+        while True:
+            target = lst.head
+            if count == target_idx:
+                return target
+            else:
+                count += 1
+                lst = lst.tail
+    except: 
+        raise CarlaeEvaluationError("Error: index out of range")
+
+
+def _print_list(o, max_depth=-1):
+    if max_depth == 0:
+        print("max depth reached")
+        return
+
+    if isinstance(o, Nil):
+        print(o)
+    elif isinstance(o, Pair):
+        print("o", o)
+        print("  > head", o.head)
+        print("  > tail", o.tail)
+        _print_list(o.tail, max_depth=max_depth-1)
+
+
+def _copy_list(ll):
+    """
+    Takes a linked list as argument. Returns a copy of the given list as another linked list.
+    If the given linked list is empty, returns an empty list.
+    """
+    if isinstance(ll, Nil):
+        return Nil()
+    return Pair(ll.head, _copy_list(ll.tail))
+
+
+def _concat_list(args):
+    """
+    Takes an arbitrary number of lists as arguments. Returns a new list representing the
+    concatenation of the given lists.
+    If exactly one list is passed in, returns a copy of that list.
+    If called with no arguemtns, returns an empty list.
+    """
+    depth = len(args)
+    def _print(*a):
+        print(f"{depth} | {a}")    
+    
+    if len(args) == 0:
+        return Nil()
+
+    first_list, rest_of_lists = args[0], args[1:]
+    if not _is_list([first_list]):
+        raise CarlaeEvaluationError("Error: can only concat lists")  
+
+    if isinstance(first_list, Nil):
+        return _concat_list(rest_of_lists)   
+
+    new_list = _copy_list(first_list)
+    next_pair = new_list
+
+    while not isinstance(next_pair.tail, Nil):
+        next_pair = next_pair.tail
+
+    next_pair.tail = _concat_list(rest_of_lists)
+
+    return new_list
+
+
+def _map(args):
+    """
+    Takes as arguments a function and a list. Returns a new list containing the results of applying 
+    the given function to eawch element of the given list.
+    """
+    if len(args) != 2:
+        raise CarlaeEvaluationError("Error: incorrect number of arguments")
+    
+    func, lst = args[0], args[1]
+    
+    if not _is_list([lst]):
+        raise CarlaeEvaluationError("Error: second argument is not a list")
+
+    # Base case for when the function reaches the end of a linked list.
+    if isinstance(lst, Nil): 
+        return Nil()
+    # Calls the given function on the head of the linked list and sets the result as the head of the new list.
+    # Tail of new list recursively calls _map through the rest of the linked list.
+    new_list = Pair(func([lst.head]), _map([func, lst.tail]))
+
+    return new_list
+
+
+def _filter(args):
+    """
+    Takes as arguments a function and a list. Returns a new list containing only the elements of
+    the given list for which the given function returns true.
+    """
+    if len(args) != 2:
+        raise CarlaeEvaluationError("Error: incorrect number of arguments")
+
+    func, lst = args[0], args[1]
+
+    if not _is_list([lst]):
+        raise CarlaeEvaluationError("Error: second argument is not a list")
+
+    if isinstance(lst, Nil):
+        return Nil()
+
+    tail_filtered = _filter([func, lst.tail])
+    if func([lst.head]) == True:
+        new_list = Pair(lst.head, tail_filtered) 
+    else:
+        new_list = tail_filtered
+
+    return new_list
+
+
+def _reduce(args):
+    """
+    Takes as arguments a function, a list, and an initial value. Returns a number that is produced
+    by successively applying the given function to elements in the list, maintaining an
+    intermediate result along the way.
+    """
+    if len(args) != 3:
+        raise CarlaeEvaluationError("Error: incorrect number of arguments")
+
+    func, lst, initval = args[0], args[1], args[2]
+
+    if not _is_list([lst]):
+        raise CarlaeEvaluationError("Error: second argument is not a list")
+
+    if isinstance(lst, Nil):
+        return initval
+
+    initval = func([initval, lst.head])
+    lst = lst.tail
+    return _reduce([func, lst, initval])
+
+
+def _begin(args):
+    """
+    Evaluates all the arguments successively. Returns the last argument.
+    """
+    return args[-1]
+
+
+class Nil:
+    def __eq__(self, other):
+        if isinstance(other, Nil):
+            return True
+        return False
+
+
 def _make_builtins_env():
     builtins = {
         "+": sum,
         "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
         "*": _mul,
         "/": _div,
+        "@t": True,
+        "@f": False,
+        "not": _not,
+        "=?": lambda args: _compare("=?", args),
+        ">": lambda args: _compare(">", args),
+        ">=": lambda args: _compare(">=", args),
+        "<": lambda args: _compare("<", args),
+        "<=": lambda args: _compare("<=", args),
+        "head": _get_head,
+        "tail": _get_tail,
+        "nil": Nil(),
+        "pair": _pair,
+        "list": _list,
+        "list?": _is_list,
+        "length": _list_length,
+        "nth": _index_list,
+        "concat": _concat_list,
+        "map": _map,
+        "filter": _filter,
+        "reduce": _reduce,
+        "begin": _begin,
+
     }
     return Environment(local=builtins)
 
@@ -250,6 +537,7 @@ class Function:
         self.expr = expr
         self.environ = environ
 
+
     def __call__(self, args):
         if len(self.params) != len(args):
             raise CarlaeEvaluationError("Error: parameter-argument number mismatch")
@@ -261,6 +549,21 @@ class Function:
         # evaluate the body of the function in that new environment.
         result = evaluate(self.expr, frame_environ)
         return result
+
+
+class Pair:
+    def __init__(self, head, tail):
+        self.head = head
+        self.tail = tail
+
+
+    def __eq__(self, other):
+        if not isinstance(other, Pair):
+            return False
+        elif self.head == other.head and self.tail == other.tail: 
+            return True
+        return False
+
 
 
 
@@ -282,6 +585,9 @@ def evaluate(tree, env=None):
 
     # Case 1: s-expression.
     if type(tree) == list:
+        if len(tree) == 0:
+            raise CarlaeEvaluationError('Error: empty subexpression')
+
         op, args = tree[0], tree[1:]
         # Handles variable definitions. Returns the value of the defined variable
         if op == ":=":
@@ -293,6 +599,56 @@ def evaluate(tree, env=None):
             else:
                 expression = evaluate(args[1], env)
                 return env.set_variable(name, expression)
+
+        # Handles conditional forms
+        elif op == "if":
+            cond = args[0]
+            true_exp = args[1]
+            false_exp = args[2]
+            if evaluate(cond, env) == True:
+                return evaluate(true_exp, env)
+            else:
+                return evaluate(false_exp, env)
+
+        elif op == 'and':
+            for arg in args:
+                if evaluate(arg, env) == False:
+                    return False
+            return True
+
+        elif op == 'or':
+            for arg in args:
+                if evaluate(arg, env) == True:
+                    return True
+            return False
+        
+        # Deletes variable bindings within the current environment
+        elif op == "del":
+            if len(args) != 1:
+                raise CarlaeEvaluationError("Error: there should only be one variable")
+            var = args[0]
+            if var not in env.local:
+                raise CarlaeNameError("Var is not bound in the current environment")
+            return env.local.pop(var)
+        
+        # Creates local variable definitions, which are only available in the body of the "let" expression
+        elif op == "let":
+            if len(args) != 2:
+                raise CarlaeEvaluationError("Error: wrong number of arguments")
+            vars_vals, body = args[0], args[1]
+            local_env = Environment(parent = env)
+            for var_val in vars_vals:
+                var, val = var_val[0], evaluate(var_val[1], env)
+                local_env.set_variable(var, val)
+            return evaluate(body, local_env)
+
+        # Changes the value of an existing variable
+        elif op == "set!":
+            if len(args) != 2:
+                raise CarlaeEvaluationError("Error: wrong number of arguments")
+            var, expr = args[0], evaluate(args[1], env)
+            # how to find the environment?
+            return env.set_bang(var, expr)
 
         # Creates a new Function object.
         elif op == "function":
@@ -347,3 +703,19 @@ def REPL(env):
             tree = parse(tokens)
             result = evaluate(tree, env)
             print("out>", result)
+
+
+def evaluate_file(file_name, env=None):
+    """
+    Takes as a single argument a file name (string) and an optional argument for the environment 
+    in which to evaluate the expression. Returns the result of evaluating the expression contained
+    in the file. 
+    """
+    file_object = open(file_name)
+    file_line = file_object.read()
+    tokens = tokenize(file_line)
+    tree = parse(tokens)
+    
+    return evaluate(tree, env)
+
+
