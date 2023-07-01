@@ -719,3 +719,6 @@ def evaluate_file(file_name, env=None):
     return evaluate(tree, env)
 
 
+if __name__ == "__main__":
+    env = make_global_env()
+    REPL(env)
