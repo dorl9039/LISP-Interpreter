@@ -1,3 +1,0 @@
-(:= (spam x) (* x x x))
-(:= ham spam)
-(ham (spam 7))
