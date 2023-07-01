@@ -34,16 +34,41 @@ Implements linked lists using a Python class, which has class methods for built-
 - filter a given list
 - reduce a given list 
 ### Evaluating multiple expressions
+Allows for running commands successively. Expressions are run sequentially, and only the result of the last expression is returned.
 ### Variable binding manipulation
-Allows for object-oriented programming within _carlae_
+Enables object-oriented programming within _carlae_
 - del: deletes variable bindings within the current environment
 - let: creates local variable definitions which cannot be accessed outside the expression
 - set!: changes the value of an existing variable
 
+## Example programs
+```
+in> (+ 4 5 (- 2 (* 2 3)))
+out> 5
+```
+```
+in> (:= x (/ 127 3)
+out> 42.333333333333336
+```
+```
+in> (:= (fib n) (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2)))))
+out> <__main__.Function object at 0x10ce52ad0>
+in> (fib 20)
+out> 6765
+```
+```
+in> (and (=? 2 2) (< 10 3))
+out> False
+```
+```
+in> (:= arr (list 1 2 3 4 5 6 7 8))
+out> <__main__.Pair object at 0x10f16ab00>
+in> (reduce + (map (function (i) (* i i)) (filter (function (i) (< i 5)) arr)) 0)
+out> 30
+```
 
-
-## Skills
-Object-oriented programming
-Functional programming
+## Skills practiced
+- Object-oriented programming
+- Functional programming
 
 
