@@ -74,6 +74,15 @@ def number_or_symbol(x):
             return x
 
 
+_FORBIDDEN_CHARS = frozenset(("(", ")", " "))
+
+def is_valid_variable_name(x):
+    if not isinstance(x, str): return False
+    if not isinstance(number_or_symbol(x), str): return False
+    if any([c in x for c in _FORBIDDEN_CHARS]): return False
+    return True
+
+
 def tokenize(source):
     """
     Splits an input string into meaningful tokens (left parens, right parens,
@@ -87,32 +96,25 @@ def tokenize(source):
     # comments are signaled by an "#", should not be included in result
     token_list = []
     token = ""
-    comment_string = ""
     comment_mode = False
 
     for char in source:
-        if char == "#":
-            comment_mode = True
-
-        if char == '\n':
-            comment_mode = False
-
         if comment_mode:
+            if char == '\n':
+                comment_mode = False
             continue
 
         if char == "(":
             token_list.append(char)
-        elif char == ")":
-            if token:
-                token_list.append(token)
-            token_list.append(char)
-            token = ""
-
-        elif char == " " or char == "\n":
+            assert not token  # incorrect whitespace
+        elif char in (" ", "\n", "#", ")"):
             if token:
                 token_list.append(token)
             token = ""
-
+            if char == "#":
+                comment_mode = True
+            elif char == ")":
+                token_list.append(char)
         else: 
             token += char
 
@@ -132,57 +134,31 @@ def parse(tokens):
     Arguments:
         tokens (list): a list of strings representing tokens
     """
-    right_count = 0
-    left_count = 0
+    def parse_sexpression(index):
+        token = tokens[index]
+        assert token == "("
 
-    for token in tokens:
-        if token == "(":
-            right_count += 1
-        if token == ")":
-            left_count += 1
-    if (right_count != left_count):
-        raise CarlaeSyntaxError("Error: number of parentheses do not match")
-    elif right_count == 0:
-        if ":=" in tokens:
-            raise CarlaeSyntaxError("Error: missing parentheses for S-expression")
-
-
+        index += 1
+        subexpression = []
+        while index < len(tokens):
+            if tokens[index] == ")":
+                return subexpression, index + 1
+            expression, index = parse_expression(index)
+            subexpression.append(expression)
+        raise CarlaeSyntaxError(f'Error: mismatched or missing parentheses.')
 
     def parse_expression(index):
-        """
-        Returns a tuple. The first element is the parsed expression:
-        - numbers (int or floats) or symbols as base cases.
-        - recursively returns S-expressions as lists of numbers or symbols.
-        The second element is the index of the token following the parsed expression.
-        """
         token = tokens[index]
-
-        # next_index always holds the index of the token to-be-parsed next
-        next_index = index + 1
+        if token == "(":
+            return parse_sexpression(index)
+        if token == ")":
+            raise CarlaeSyntaxError(f'Error: mismatched or missing parentheses.')
         rep = number_or_symbol(token)
-        print()
-        print(f'call parse_expression({index}), got {type(rep)}, {rep}')
+        return rep, index + 1
 
-        # raises CarlaeSyntaxError if parentheses are mismatched or missing
-        if rep == ")":
-             raise CarlaeSyntaxError(f'Error: mismatched or missing parentheses. Rep is {rep}')
-
-        # base case returns a tuple of: numbers or symbols and the index of the next token
-        if rep != "(" and rep != ")":
-            print(f'rep is not ( or ), returned {rep}, {next_index}')
-            return (rep, next_index)
-
-        subexpression = []
-
-        while tokens[next_index] != ")":
-            element, next_index = parse_expression(next_index)
-            subexpression.append(element)
-        return (subexpression, next_index + 1)
-
-
-
-    parsed_expression, next_index = parse_expression(0)
-    print(f'parsed_expression: {parsed_expression}, next_index: {next_index}')
+    parsed_expression, idx = parse_expression(0)
+    if idx != len(tokens):
+        raise CarlaeSyntaxError(f'Error: malformed sexpression or mismatched parentheses.')
     return parsed_expression
 
 
@@ -191,57 +167,108 @@ def parse(tokens):
 # Built-in Functions #
 ######################
 
-class environment:
+def _mul(args):
+    prod = 1
+    for arg in args:
+        prod *= arg
+    return prod
+
+def _div(args):
+    if not args:
+        raise CarlaeEvaluationError("Evaluation error: Division expected at least one argument")
+    elif len(args) == 1:
+        return 1 / args[0]
+    else:
+        return args[0] / _mul(args[1:])
+
+
+class Environment:
     """
     Environment class, which allows assignment and lookup environment parentage
     """
-    def mul(args):
-        prod = 1
-        for arg in args:
-            prod *= arg
-        return prod
-
-    def div(args):
-        if not args:
-            raise CarlaeEvaluationError("Evaluation error: Division expected at least one argument")
-        elif len(args) == 1:
-            return 1 / args[0]
-        else:
-            return args[0] / environment.mul(args[1:])
-    carlae_builtins = {
-        "+": sum,
-        "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
-        "*": mul,
-        "/": div,
-    }    
-
-    def __init__(self, local, parent):
-        self.local = {}
+    def __init__(self, local=None, parent=None):
+        if local is None:
+            local = {}
+        self.local = local
         self.parent = parent
 
 
     def set_variable(self, name, expression):
+        """
+        Sets a variable (name) by creating in the local environment a dictionary key (name) associated 
+        with a value (expression). Returns the value.
+        """
+        assert self.parent is not None
+        if not is_valid_variable_name(name):
+            raise CarlaeNameError(f'Error: {name} is not a valid variable name')
         self.local[name] = expression
         return self.local[name]
         
-    def get_variable(self, name, environ):
-        if name in environ.local:
-            return environ.local[name]
+    def get_variable(self, name):
+        """
+        Looks in the local environment for the variable name, returns the value.
+        If variable does not exist in the local environment and the environment has a parent,
+        this looks up the variable name in the parent environment.
+        If the variable does not exist in the local environment and the environment does not have a parent, 
+        raises an error.
+        """
+        if not isinstance(name, str):
+            raise CarlaeEvaluationError
+
+        if name in self.local:
+            return self.local[name]
         else:
-            environ = environ.parent
             try:
-                return self.get_variable(name, environ)
+                return self.parent.get_variable(name)
             except:
-                raise CarlaeNameError(f'variable {name} does not has no value')
+                raise CarlaeNameError(f"name '{name}' is not defined.")
+
+
+def _make_builtins_env():
+    builtins = {
+        "+": sum,
+        "-": lambda args: -args[0] if len(args) == 1 else (args[0] - sum(args[1:])),
+        "*": _mul,
+        "/": _div,
+    }
+    return Environment(local=builtins)
+
+
+def make_global_env():
+    builtins_env = _make_builtins_env()
+    return Environment(parent=builtins_env)
+
+
+class Function:
+    """
+    Function class, which allows storage of function details (code representing the expression, names
+    of the function's parameters, and pointer to the function's enclosing environment) and calling 
+    of function
+    """
+    def __init__(self, params, expr, environ):
+        self.params = params
+        self.expr = expr
+        self.environ = environ
+
+    def __call__(self, args):
+        if len(self.params) != len(args):
+            raise CarlaeEvaluationError("Error: parameter-argument number mismatch")
+        # make a new environment whose parent is the function's enclosing environment (this is called lexical scoping).
+        frame_environ = Environment(parent=self.environ)
+        # in that new environment, bind the function's parameters to the arguments that are passed to it.
+        for p, arg in zip(self.params, args):
+            frame_environ.set_variable(p, arg)
+        # evaluate the body of the function in that new environment.
+        result = evaluate(self.expr, frame_environ)
+        return result
+
 
 
 ##############
 # Evaluation #
 ##############
-builtins = environment(environment.carlae_builtins, None)
-env_globals = environment("empty", builtins)
 
-def evaluate(tree, local = env_globals):
+def evaluate(tree, env=None):
     """
     Evaluate the given syntax tree according to the rules of the Carlae
     language.
@@ -250,62 +277,73 @@ def evaluate(tree, local = env_globals):
         tree (type varies): a fully parsed expression, as the output from the
                             parse function
     """
-    
-    # base cases: returns associated symbol in carlae_builtins or a number
-    
-    if type(tree) == list:
-         
-        op = tree[0]
-        if op == ":=":
-            name = tree[1]
-            expression = evaluate(tree[2], local)            
-            return local.set_variable(name, expression)
+    if env is None:
+        env = make_global_env()
 
-        elif op not in environment.carlae_builtins:
-            raise CarlaeEvaluationError(f'Error: {op} is not a valid function')
+    # Case 1: s-expression.
+    if type(tree) == list:
+        op, args = tree[0], tree[1:]
+        # Handles variable definitions. Returns the value of the defined variable
+        if op == ":=":
+            assert len(args) == 2
+            name = args[0]
+            if type(name) == list:
+                equiv_tree = [op, name[0], ['function', name[1:], args[1]]]
+                return evaluate(equiv_tree, env)
+            else:
+                expression = evaluate(args[1], env)
+                return env.set_variable(name, expression)
+
+        # Creates a new Function object.
+        elif op == "function":
+            assert len(args) == 2
+            params = args[0]
+            expr = args[1]
+            func = Function(params, expr, env)
+            return func
 
         else:
-            args = []
-            for element in tree[1:]:
-                exp = evaluate(element, local)
-                args.append(exp)
-            return environment.carlae_builtins[op](args)
+            if type(op) == list:
+                # Anonymous function
+                func = evaluate(op, env)
+            else:
+                # Named function
+                func = env.get_variable(op)
+            args = [evaluate(arg, env) for arg in args]
+            return func(args)
 
-    elif tree in environment.carlae_builtins:
-        return environment.carlae_builtins[tree]
-    
+    # Case 2: bare value
     elif type(tree) == int or type(tree) == float:
         return tree
 
-    elif tree.isidentifier():
-        variable_value = local.get_variable(tree, local)
+    # Case 3: variable
+    else:
+        variable_value = env.get_variable(tree)
         return variable_value
 
-    else: 
-        raise CarlaeNameError(f'Error: {tree} is not a symbol in carlae_builtins')
 
-def result_and_env(tree, local = env_globals):
+
+def result_and_env(tree, env=None):
     """
     Takes the same argument as evaluate.
-    Returns the result of the evaluation and the environment in which the expression was evaluated as a tuple.
+    Returns the result of the evaluation and the environment in which the expression was evaluated 
+    as a tuple.
     """
-    if local == env_globals:
-        local = environment("local", env_globals)
-
-    result = evaluate(tree, local)
+    # If no environment is given as a parameter, makes a brand new environment which takes 
+    # env_globals as its parent.
+    if env is None:
+        env = make_global_env()
+    result = evaluate(tree, env)
+    return result, env
     
-    return(result, local)
-    
 
-
-def REPL():
-    # initialize global environment here
-    source = input("in> ")
-    if source == "EXIT":
-        return
-    else:
-        tokens = tokenize(source)
-        tree = parse(tokens)
-        result = evaluate(tree)
-        print("out>", result)
-        return REPL()
+def REPL(env):
+    while True:
+        source = input("in> ")
+        if source == "EXIT":
+            return
+        else:
+            tokens = tokenize(source)
+            tree = parse(tokens)
+            result = evaluate(tree, env)
+            print("out>", result)
