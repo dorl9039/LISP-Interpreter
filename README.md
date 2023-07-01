@@ -18,23 +18,28 @@ The goal is to create _carlae_, an interpreter for a Turing-complete subset of L
 - Runs programs by taking an abstract syntax tree and returns the value of the expression.
 
 ## Features
-### Calculator
+__Calculator__
 Evaluates arithmetic (`+`, `-`, `*`, `/`) expressions with arbitrarily many arguments. Adheres to the order of operations.
-### Environments
+
+__Environments__
 Maintains contexts in which an expression should be evaluated. An environment consists of bindings from variable names to values and references a parent environment (if one exists) from which other bindings are inherited. 
-### Conditionals
+__Conditionals__
 Supports conditional executionm e.g., `(if COND TRUE_EXP FALSE_EXP)`
-### Booleans and comparisons
+
+__Booleans and comparisons__
 Evaluates truthiness of expressions. `and` and `or` are implemented to "short-circuit", that is, evaluate only as far as necessary to determine what the result should be.
-### Lists
+
+__Lists__
 Implements linked lists using a Python class, which has class methods for built-in list functions, for example:
 - return the element at a given index
 - concatenate an arbitrary number of lists
 - map a function to each element in a given list
 - filter a given list
 - reduce a given list 
-### Evaluating multiple expressions
-### Variable binding manipulation
+
+__Evaluating multiple expressions__
+
+__Variable binding manipulation__
 Allows for object-oriented programming within _carlae_
 - del: deletes variable bindings within the current environment
 - let: creates local variable definitions which cannot be accessed outside the expression
