@@ -43,27 +43,27 @@ Enables object-oriented programming within _carlae_
 
 ## Example programs
 ```
-in> (+ 4 5 (- 2 (* 2 3)))
+in>  (+ 4 5 (- 2 (* 2 3)))
 out> 5
 ```
 ```
-in> (:= x (/ 127 3)
+in>  (:= x (/ 127 3)
 out> 42.333333333333336
 ```
 ```
-in> (:= (fib n) (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2)))))
+in>  (:= (fib n) (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2)))))
 out> <__main__.Function object at 0x10ce52ad0>
-in> (fib 20)
+in>  (fib 20)
 out> 6765
 ```
 ```
-in> (and (=? 2 2) (< 10 3))
+in>  (and (=? 2 2) (< 10 3))
 out> False
 ```
 ```
-in> (:= arr (list 1 2 3 4 5 6 7 8))
+in>  (:= arr (list 1 2 3 4 5 6 7 8))
 out> <__main__.Pair object at 0x10f16ab00>
-in> (reduce + (map (function (i) (* i i)) (filter (function (i) (< i 5)) arr)) 0)
+in>  (reduce + (map (function (i) (* i i)) (filter (function (i) (< i 5)) arr)) 0)
 out> 30
 ```
 
